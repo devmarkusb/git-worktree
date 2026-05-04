@@ -30,7 +30,7 @@ python C:\path\to\git-worktree my-branch
 `git-worktree` picks a `git-sub` in this order — **no pip required**:
 
 1. **`GIT_SUB`** — absolute path to the `git-sub` file, if you keep it somewhere custom.
-2. **`git-sub` on your PATH** — e.g. copy both scripts into `~/bin`.
+2. **`git-sub` on your PATH** — e.g. copy or link both scripts into `~/bin`.
 3. **Sibling clone** — clone both repos under the same parent with the default names:
    - `…/git-worktree/git-worktree`
    - `…/git-sub/git-sub`  
