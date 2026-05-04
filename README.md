@@ -1,5 +1,10 @@
 # git-worktree
 
+[![CI](https://github.com/devmarkusb/git-worktree/actions/workflows/ci.yml/badge.svg)](https://github.com/devmarkusb/git-worktree/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.8%2B-informational)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Codecov](https://codecov.io/gh/devmarkusb/git-worktree/graph/badge.svg)](https://codecov.io/gh/devmarkusb/git-worktree)
+
 **Linked Git worktrees with a predictable path—and teardown that still works when submodules get in the way.**
 
 Single Python file. After each **add** it runs **git-sub** when available (full submodule + optional LFS), otherwise a **minimal built-in** `git submodule update --init --recursive`. **Remove** uses `git worktree remove -f` so dirty trees and submodule checkouts do not block cleanup.
@@ -8,6 +13,16 @@ Single Python file. After each **add** it runs **git-sub** when available (full 
 
 - Python 3.8+ (uses postponed annotations)
 - `git` on your PATH (Git for Windows is enough on Windows)
+
+## Development
+
+```bash
+pip install 'pytest>=7.4' 'pytest-cov>=4.1' 'ruff>=0.4'
+ruff check git-worktree tests
+pytest tests/ --cov=. --cov-config=pyproject.toml --cov-report=term-missing
+```
+
+CI runs on pushes and pull requests to `main` (Linux and macOS, multiple Python versions). Optional [Codecov](https://codecov.io/gh/devmarkusb/git-worktree) uploads use the `CODECOV_TOKEN` repository secret when set.
 
 ## Install
 
