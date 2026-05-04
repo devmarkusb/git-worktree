@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""
+Add or remove a Git worktree beside the main repo (same layout as the old bash helper).
+
+Path: <parent>/<repo_basename>-<branch with each / as ->
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PROG = "git-worktree"
+
+USAGE = f"""Usage: {PROG} <branch>
+       {PROG} remove|rm <branch>
+Try '{PROG} --help' for more."""
+
+HELP = f"""Usage:
+  {PROG} <branch>              Create a linked worktree for <branch>
+  {PROG} remove|rm <branch>    Remove that worktree (uses git worktree remove -f)
+
+Worktree path:
+  Next to the current repo: <parent>/<basename(repo)>-<branch name with slashes as hyphens>
+
+About <branch>:
+  On add, <branch> is a real Git branch name (or a new branch name to create): it
+  selects what to check out and also sets the directory suffix above.
+
+  On remove, <branch> must be the same string you used at create time. It only
+  recomputes that directory name; it is not "whatever branch is checked out now"
+  in the worktree. If you later git checkout another branch inside the worktree,
+  you still remove with the original creation name.
+
+  If you rename the worktree directory by hand, this script will not find it
+  unless you pass a name that still matches the folder suffix (or use another tool).
+
+remove uses -f so removal still works with dirty trees and submodules.
+
+Platforms:
+  Needs Python 3 and git on PATH. On Windows, run e.g.:
+    python path\\to\\{PROG} <branch>
+  or put this file in a directory on PATH and associate/run with python3.
+"""
+
+
+def die(msg: str) -> None:
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def git_output(args: list[str]) -> str:
+    r = subprocess.run(["git", *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        die("Error: not a git repository (or git failed)")
+    return r.stdout.strip()
+
+
+def ref_exists(ref: str) -> bool:
+    r = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", ref],
+        capture_output=True,
+    )
+    return r.returncode == 0
+
+
+def git_run(args: list[str], *, cwd: Path | None = None) -> None:
+    r = subprocess.run(["git", *args], cwd=cwd)
+    if r.returncode != 0:
+        raise SystemExit(r.returncode)
+
+
+def repo_root() -> Path:
+    return Path(git_output(["rev-parse", "--show-toplevel"]))
+
+
+def worktree_path(root: Path, branch: str) -> Path:
+    suffix = branch.replace("/", "-")
+    return root.parent / f"{root.name}-{suffix}"
+
+
+def invoke_git_sub(worktree: Path, script_dir: Path) -> None:
+    gs = shutil.which("git-sub")
+    if gs:
+        subprocess.run([gs], cwd=worktree, check=True)
+        return
+    local = script_dir / "git-sub"
+    if local.is_file():
+        bash = shutil.which("bash")
+        if not bash:
+            die(
+                "Error: git-sub not on PATH; found bash git-sub next to this script "
+                "but bash is not on PATH (install Git for Windows / Git Bash)."
+            )
+        subprocess.run([bash, str(local)], cwd=worktree, check=True)
+        return
+    die("Error: git-sub not found on PATH and not next to this script.")
+
+
+def cmd_add(branch: str, script_dir: Path) -> None:
+    root = repo_root()
+    wt = worktree_path(root, branch)
+    if wt.exists():
+        die(f"Error: target path already exists: {wt}")
+
+    if ref_exists(f"refs/heads/{branch}"):
+        git_run(["worktree", "add", str(wt), branch])
+    elif ref_exists(f"refs/remotes/origin/{branch}"):
+        git_run(["worktree", "add", "-b", branch, str(wt), f"origin/{branch}"])
+    else:
+        git_run(["worktree", "add", "-b", branch, str(wt)])
+
+    invoke_git_sub(wt, script_dir)
+    print("Created worktree:")
+    print(f"  {wt}")
+
+
+def cmd_remove(branch: str) -> None:
+    root = repo_root()
+    wt = worktree_path(root, branch)
+    git_run(["worktree", "remove", "-f", str(wt)])
+    print("Removed worktree:")
+    print(f"  {wt}")
+
+
+def parse_argv(argv: list[str]) -> tuple[str, str]:
+    if not argv:
+        die(USAGE)
+    if argv[0] in ("-h", "--help"):
+        print(HELP)
+        raise SystemExit(0)
+    mode: str
+    if argv[0] in ("remove", "rm"):
+        mode = "remove"
+        rest = argv[1:]
+    else:
+        mode = "add"
+        rest = argv
+    if len(rest) != 1:
+        die(USAGE)
+    branch = rest[0]
+    if not branch.strip():
+        die("Error: branch name must not be empty")
+    return mode, branch
+
+
+def main(argv: list[str] | None = None) -> int:
+    script_dir = Path(__file__).resolve().parent
+    mode, branch = parse_argv(list(sys.argv[1:] if argv is None else argv))
+    if mode == "remove":
+        cmd_remove(branch)
+    else:
+        cmd_add(branch, script_dir)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
