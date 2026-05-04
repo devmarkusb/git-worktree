@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# Minimal default: init submodules in the new worktree. Override by putting your
-# own `git-sub` earlier on PATH (checked before this file by git-worktree).
-set -euo pipefail
-git submodule update --init --recursive

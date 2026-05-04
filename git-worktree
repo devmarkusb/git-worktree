@@ -3,11 +3,11 @@
 Add or remove a Git worktree beside the main repo (same layout as the old bash helper).
 
 Path: <parent>/<repo_basename>-<branch with each / as ->
+After add: runs `git submodule update --init --recursive` in the new tree (no extra scripts).
 """
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,7 +37,9 @@ About <branch>:
   If you rename the worktree directory by hand, this script will not find it
   unless you pass a name that still matches the folder suffix (or use another tool).
 
-remove uses -f so removal still works with dirty trees and submodules.
+After add, submodules are initialized with:
+  git submodule update --init --recursive
+(remove still uses -f so teardown works with dirty trees and submodule checkouts.)
 
 Platforms:
   Needs Python 3 and git on PATH. On Windows, run e.g.:
@@ -81,25 +83,11 @@ def worktree_path(root: Path, branch: str) -> Path:
     return root.parent / f"{root.name}-{suffix}"
 
 
-def invoke_git_sub(worktree: Path, script_dir: Path) -> None:
-    gs = shutil.which("git-sub")
-    if gs:
-        subprocess.run([gs], cwd=worktree, check=True)
-        return
-    local = script_dir / "git-sub"
-    if local.is_file():
-        bash = shutil.which("bash")
-        if not bash:
-            die(
-                "Error: git-sub not on PATH; found bash git-sub next to this script "
-                "but bash is not on PATH (install Git for Windows / Git Bash)."
-            )
-        subprocess.run([bash, str(local)], cwd=worktree, check=True)
-        return
-    die("Error: git-sub not found on PATH and not next to this script.")
+def init_submodules(worktree: Path) -> None:
+    git_run(["submodule", "update", "--init", "--recursive"], cwd=worktree)
 
 
-def cmd_add(branch: str, script_dir: Path) -> None:
+def cmd_add(branch: str) -> None:
     root = repo_root()
     wt = worktree_path(root, branch)
     if wt.exists():
@@ -112,7 +100,7 @@ def cmd_add(branch: str, script_dir: Path) -> None:
     else:
         git_run(["worktree", "add", "-b", branch, str(wt)])
 
-    invoke_git_sub(wt, script_dir)
+    init_submodules(wt)
     print("Created worktree:")
     print(f"  {wt}")
 
@@ -147,12 +135,11 @@ def parse_argv(argv: list[str]) -> tuple[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    script_dir = Path(__file__).resolve().parent
     mode, branch = parse_argv(list(sys.argv[1:] if argv is None else argv))
     if mode == "remove":
         cmd_remove(branch)
     else:
-        cmd_add(branch, script_dir)
+        cmd_add(branch)
     return 0
 
 
