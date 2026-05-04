@@ -11,9 +11,10 @@ Single Python file. After each **add** it runs **git-sub** when available (full 
 
 ## Install
 
+The script is stored in Git as **executable** (`100755`), so on macOS/Linux a fresh clone is usually runnable as `./git-worktree` without `chmod`. If your checkout lost `+x` (e.g. `core.filemode false`, odd FS), run `chmod +x git-worktree` once.
+
 ```bash
-chmod +x git-worktree
-cp git-worktree ~/bin/   # or another directory on your PATH
+cp git-worktree ~/bin/   # or symlink; keep one directory on your PATH
 ```
 
 On Windows:
