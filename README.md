@@ -22,9 +22,9 @@ On Windows:
 python C:\path\to\git-worktree my-branch
 ```
 
-## git-sub (optional but recommended)
+## Companion: [git-sub](https://github.com/devmarkusb/git-sub) (optional but recommended)
 
-For **submodules + Git LFS** in one step, use the companion **git-sub** repo (same idea as this one: a single Python `git-sub` file you publish separately).
+> **Separate project.** Use **[git-sub](https://github.com/devmarkusb/git-sub)** if you want **submodules + Git LFS** in one step after each worktree add (same style as this repo: one Python file). Skip this section if you only need the built-in submodule fallback.
 
 `git-worktree` picks a `git-sub` in this order — **no pip required**:
 
