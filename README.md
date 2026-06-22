@@ -23,7 +23,8 @@ LFS), otherwise a **minimal built-in** `git submodule update --init --recursive`
 git config core.hooksPath .githooks
 pip install 'pytest>=7.4' 'pytest-cov>=4.1' 'ruff>=0.4'
 python3 tools/format_markdown.py README.md
-ruff check git-worktree tests
+python3 tools/format_markdown.py --check --tracked
+ruff check git-worktree tests tools/format_markdown.py
 pytest tests/ --cov=. --cov-config=pyproject.toml --cov-report=term-missing
 ```
 

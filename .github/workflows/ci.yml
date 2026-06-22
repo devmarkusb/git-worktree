@@ -38,8 +38,11 @@ jobs:
           python -m pip install -U pip
           python -m pip install 'pytest>=7.4' 'pytest-cov>=4.1' 'ruff>=0.4'
 
+      - name: Markdown formatting
+        run: python tools/format_markdown.py --check --tracked
+
       - name: Ruff
-        run: ruff check git-worktree tests
+        run: ruff check git-worktree tests tools/format_markdown.py
 
       - name: Pytest with coverage
         run: |
