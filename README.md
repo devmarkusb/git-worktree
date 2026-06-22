@@ -55,7 +55,8 @@ python C:\path\to\git-worktree my-branch
 ## Usage
 
 ```text
-git-worktree <branch>           # create worktree + post-add hook (see above)
+git-worktree add <branch>       # create worktree + post-add hook (see above)
+git-worktree list|ls            # list linked worktrees
 git-worktree remove|rm <branch> # remove (forced: safe with submodules / local changes)
 git-worktree --help
 ```

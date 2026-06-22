@@ -28,11 +28,11 @@ def git_repo(tmp_path: Path) -> Path:
 
 
 def test_add_and_remove_worktree(git_repo: Path):
-    branch = "feature-wt"
+    branch = "list"
     wt_path = git_repo.parent / f"{git_repo.name}-{branch}"
 
     r = subprocess.run(
-        [sys.executable, str(SCRIPT), branch],
+        [sys.executable, str(SCRIPT), "add", branch],
         cwd=git_repo,
         capture_output=True,
         text=True,
@@ -40,6 +40,16 @@ def test_add_and_remove_worktree(git_repo: Path):
     assert r.returncode == 0, r.stderr + r.stdout
     assert wt_path.is_dir()
     assert (wt_path / "README.md").read_text() == "# hi\n"
+
+    r_list = subprocess.run(
+        [sys.executable, str(SCRIPT), "list"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r_list.returncode == 0, r_list.stderr + r_list.stdout
+    assert str(git_repo) in r_list.stdout
+    assert str(wt_path) in r_list.stdout
 
     r2 = subprocess.run(
         [sys.executable, str(SCRIPT), "rm", branch],
@@ -56,7 +66,7 @@ def test_add_refuses_existing_path(git_repo: Path):
     wt_path = git_repo.parent / f"{git_repo.name}-{branch}"
     wt_path.mkdir()
     r = subprocess.run(
-        [sys.executable, str(SCRIPT), branch],
+        [sys.executable, str(SCRIPT), "add", branch],
         cwd=git_repo,
         capture_output=True,
         text=True,

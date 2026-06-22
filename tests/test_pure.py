@@ -17,13 +17,18 @@ def test_worktree_path(gw):
 
 
 def test_parse_argv_add(gw):
-    assert gw.parse_argv(["x"]) == ("add", "x")
-    assert gw.parse_argv(["my-branch"]) == ("add", "my-branch")
+    assert gw.parse_argv(["add", "x"]) == ("add", "x")
+    assert gw.parse_argv(["add", "list"]) == ("add", "list")
 
 
 def test_parse_argv_remove(gw):
     assert gw.parse_argv(["remove", "x"]) == ("remove", "x")
     assert gw.parse_argv(["rm", "feature-a"]) == ("remove", "feature-a")
+
+
+def test_parse_argv_list(gw):
+    assert gw.parse_argv(["list"]) == ("list", None)
+    assert gw.parse_argv(["ls"]) == ("list", None)
 
 
 def test_parse_argv_help(gw):
@@ -41,6 +46,14 @@ def test_parse_argv_help_short(gw):
 def test_parse_argv_errors(gw):
     with pytest.raises(SystemExit):
         gw.parse_argv([])
+    with pytest.raises(SystemExit):
+        gw.parse_argv(["list", "extra"])
+    with pytest.raises(SystemExit):
+        gw.parse_argv(["add"])
+    with pytest.raises(SystemExit):
+        gw.parse_argv(["add", "a", "b"])
+    with pytest.raises(SystemExit):
+        gw.parse_argv(["bla"])
     with pytest.raises(SystemExit):
         gw.parse_argv(["remove"])
     with pytest.raises(SystemExit):
