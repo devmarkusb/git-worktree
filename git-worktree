@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 PROG = "git-worktree"
 
@@ -49,6 +50,14 @@ After add — submodule / LFS setup (first match wins):
      side by side with the default folder names.
   4. Otherwise: built-in fallback — git submodule update --init --recursive only.
 
+After add — local symlink setup:
+  Recreates symlinks that point outside the repo when the same link is present
+  in the source worktree and at least one other existing worktree. This is meant
+  for ignored personal config such as CMakeUserPresets.json, .run, or
+  .idea/runConfigurations. For the first added worktree only, bootstraps from
+  ignored external symlinks in the source worktree. Common generated directories
+  such as venv, .venv, node_modules, and cmake-build-* are pruned while scanning.
+
 remove uses -f so teardown works with dirty trees and submodule checkouts.
 
 Platforms:
@@ -56,6 +65,42 @@ Platforms:
     python path\\to\\{PROG} add <branch>
   or put this file in a directory on PATH and associate/run with python3.
 """
+
+PRUNE_SYMLINK_SCAN_DIR_NAMES = {
+    ".cache",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".scannerwork",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
+PRUNE_SYMLINK_SCAN_DIR_PREFIXES = ("cmake-build-", "_build")
+MIN_SHARED_SYMLINK_WORKTREES = 2
+SYSTEM_SYMLINK_TARGET_ROOTS = tuple(
+    Path(path)
+    for path in (
+        "/Applications",
+        "/Library",
+        "/System",
+        "/bin",
+        "/lib",
+        "/lib64",
+        "/opt/homebrew",
+        "/opt/local",
+        "/sbin",
+        "/usr",
+    )
+)
+
+
+class ExternalSymlink(NamedTuple):
+    relpath: Path
+    raw_target: str
+    resolved_target: Path
 
 
 def die(msg: str) -> None:
@@ -88,9 +133,168 @@ def repo_root() -> Path:
     return Path(git_output(["rev-parse", "--show-toplevel"]))
 
 
+def git_worktree_roots() -> list[Path]:
+    roots: list[Path] = []
+    for line in git_output(["worktree", "list", "--porcelain"]).splitlines():
+        if line.startswith("worktree "):
+            roots.append(Path(line[len("worktree ") :]))
+    return roots
+
+
+def is_git_ignored(root: Path, relpath: Path) -> bool:
+    r = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--", relpath.as_posix()],
+        cwd=root,
+    )
+    return r.returncode == 0
+
+
 def worktree_path(root: Path, branch: str) -> Path:
     suffix = branch.replace("/", "-")
     return root.parent / f"{root.name}-{suffix}"
+
+
+def is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def resolved_symlink_target(link: Path, raw_target: str) -> Path:
+    target = Path(raw_target)
+    if not target.is_absolute():
+        target = link.parent / target
+    return target.resolve(strict=False)
+
+
+def should_prune_symlink_scan_dir(path: Path) -> bool:
+    name = path.name
+    if name in PRUNE_SYMLINK_SCAN_DIR_NAMES:
+        return True
+    if any(name.startswith(prefix) for prefix in PRUNE_SYMLINK_SCAN_DIR_PREFIXES):
+        return True
+    return (path / "pyvenv.cfg").is_file()
+
+
+def maybe_external_symlink(root_resolved: Path, link: Path) -> ExternalSymlink | None:
+    raw_target = os.readlink(link)
+    resolved_target = resolved_symlink_target(link, raw_target)
+    if is_within(resolved_target, root_resolved):
+        return None
+    return ExternalSymlink(link.relative_to(root_resolved), raw_target, resolved_target)
+
+
+def find_external_symlinks(root: Path) -> list[ExternalSymlink]:
+    root_resolved = root.resolve(strict=False)
+    symlinks: list[ExternalSymlink] = []
+
+    for dirpath_str, dirnames, filenames in os.walk(root_resolved):
+        dirpath = Path(dirpath_str)
+
+        for name in list(dirnames):
+            path = dirpath / name
+            if path.is_symlink():
+                link = maybe_external_symlink(root_resolved, path)
+                if link is not None:
+                    symlinks.append(link)
+                dirnames.remove(name)
+            elif should_prune_symlink_scan_dir(path):
+                dirnames.remove(name)
+
+        for name in filenames:
+            path = dirpath / name
+            if path.is_symlink():
+                link = maybe_external_symlink(root_resolved, path)
+                if link is not None:
+                    symlinks.append(link)
+
+    return sorted(symlinks, key=lambda link: link.relpath.as_posix())
+
+
+def symlink_key(link: ExternalSymlink) -> tuple[Path, Path]:
+    return link.relpath, link.resolved_target
+
+
+def is_system_symlink_target(path: Path) -> bool:
+    return any(path == root or is_within(path, root) for root in SYSTEM_SYMLINK_TARGET_ROOTS)
+
+
+def external_symlink_map(root: Path) -> dict[tuple[Path, Path], ExternalSymlink]:
+    return {symlink_key(link): link for link in find_external_symlinks(root)}
+
+
+def find_bootstrap_external_symlinks(source_root: Path) -> list[ExternalSymlink]:
+    return [
+        link
+        for link in find_external_symlinks(source_root)
+        if is_git_ignored(source_root, link.relpath)
+        and link.resolved_target.exists()
+        and not is_system_symlink_target(link.resolved_target)
+    ]
+
+
+def find_shared_external_symlinks(
+    source_root: Path,
+    existing_roots: list[Path],
+) -> list[ExternalSymlink]:
+    if len(existing_roots) < MIN_SHARED_SYMLINK_WORKTREES:
+        return find_bootstrap_external_symlinks(source_root)
+
+    source_links = external_symlink_map(source_root)
+    shared_counts: dict[tuple[Path, Path], int] = {}
+
+    for root in existing_roots:
+        for key in external_symlink_map(root):
+            shared_counts[key] = shared_counts.get(key, 0) + 1
+
+    return [
+        link
+        for key, link in sorted(source_links.items(), key=lambda item: item[0][0].as_posix())
+        if shared_counts.get(key, 0) >= MIN_SHARED_SYMLINK_WORKTREES
+    ]
+
+
+def target_for_new_symlink(link: ExternalSymlink, new_link: Path) -> str:
+    raw_target = Path(link.raw_target)
+    if raw_target.is_absolute():
+        return link.raw_target
+
+    raw_target_from_new_link = resolved_symlink_target(new_link, link.raw_target)
+    if raw_target_from_new_link == link.resolved_target:
+        return link.raw_target
+    return str(link.resolved_target)
+
+
+def symlink_points_to(link: Path, target: Path) -> bool:
+    try:
+        raw_target = os.readlink(link)
+    except OSError:
+        return False
+    return resolved_symlink_target(link, raw_target) == target
+
+
+def recreate_external_symlinks(
+    source_root: Path,
+    existing_roots: list[Path],
+    worktree: Path,
+) -> list[Path]:
+    created: list[Path] = []
+    for link in find_shared_external_symlinks(source_root, existing_roots):
+        new_link = worktree / link.relpath
+        if new_link.is_symlink() and symlink_points_to(new_link, link.resolved_target):
+            continue
+        if new_link.exists() or new_link.is_symlink():
+            print(
+                f"Warning: skipping existing path while recreating symlink: {new_link}",
+                file=sys.stderr,
+            )
+            continue
+        new_link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target_for_new_symlink(link, new_link), new_link)
+        created.append(link.relpath)
+    return created
 
 
 def is_python_script(path: Path) -> bool:
@@ -146,16 +350,27 @@ def submodule_fallback(worktree: Path) -> None:
     raise SystemExit(r.returncode)
 
 
-def after_worktree_add(worktree: Path, worktree_script: Path) -> None:
+def after_worktree_add(
+    source_root: Path,
+    existing_roots: list[Path],
+    worktree: Path,
+    worktree_script: Path,
+) -> None:
     gs = resolve_git_sub(worktree_script)
     if gs is not None:
         run_git_sub(gs, worktree)
     else:
         submodule_fallback(worktree)
+    created_links = recreate_external_symlinks(source_root, existing_roots, worktree)
+    if created_links:
+        print("Recreated external symlinks:")
+        for link in created_links:
+            print(f"  {link}")
 
 
 def cmd_add(branch: str, worktree_script: Path) -> None:
     root = repo_root()
+    existing_roots = git_worktree_roots()
     wt = worktree_path(root, branch)
     if wt.exists():
         die(f"Error: target path already exists: {wt}")
@@ -167,7 +382,7 @@ def cmd_add(branch: str, worktree_script: Path) -> None:
     else:
         git_run(["worktree", "add", "-b", branch, str(wt)])
 
-    after_worktree_add(wt, worktree_script)
+    after_worktree_add(root, existing_roots, wt, worktree_script)
     print("Created worktree:")
     print(f"  {wt}")
 

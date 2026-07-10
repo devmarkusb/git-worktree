@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -73,3 +74,78 @@ def test_add_refuses_existing_path(git_repo: Path):
     )
     assert r.returncode != 0
     assert "already exists" in (r.stderr + r.stdout).lower() or "exists" in (r.stderr + r.stdout)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs privileges on Windows")
+def test_add_bootstraps_ignored_external_symlinks_for_first_worktree(
+    git_repo: Path,
+    tmp_path: Path,
+):
+    branch = "first-links"
+    wt_path = git_repo.parent / f"{git_repo.name}-{branch}"
+    shared = tmp_path / "shared-config"
+    shared.mkdir()
+    (shared / "CMakeUserPresets.json").write_text("{}\n")
+
+    (git_repo / ".gitignore").write_text("CMakeUserPresets.json\n.run\nvenv/\n")
+    os.symlink(shared / "CMakeUserPresets.json", git_repo / "CMakeUserPresets.json")
+    os.symlink(shared, git_repo / ".run")
+    os.symlink(shared, git_repo / "not-ignored")
+
+    venv_bin = git_repo / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    os.symlink(sys.executable, venv_bin / "python")
+
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "add", branch],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert (wt_path / "CMakeUserPresets.json").is_symlink()
+    assert (wt_path / "CMakeUserPresets.json").resolve() == shared / "CMakeUserPresets.json"
+    assert (wt_path / ".run").is_symlink()
+    assert (wt_path / ".run").resolve() == shared
+    assert not (wt_path / "not-ignored").exists()
+    assert not (wt_path / "venv" / "bin" / "python").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs privileges on Windows")
+def test_add_recreates_external_symlinks(git_repo: Path, tmp_path: Path):
+    branch = "with-links"
+    existing_branch = "already-linked"
+    existing_path = git_repo.parent / f"{git_repo.name}-{existing_branch}"
+    wt_path = git_repo.parent / f"{git_repo.name}-{branch}"
+    shared = tmp_path / "shared-config"
+    run_configs = shared / ".idea" / "runConfigurations"
+    run_configs.mkdir(parents=True)
+    (shared / "CMakeUserPresets.json").write_text("{}\n")
+    (run_configs / "demo.xml").write_text("<component />\n")
+
+    os.symlink(shared / "CMakeUserPresets.json", git_repo / "CMakeUserPresets.json")
+    (git_repo / ".idea").mkdir()
+    os.symlink(run_configs, git_repo / ".idea" / "runConfigurations")
+
+    _git(git_repo, "worktree", "add", "-b", existing_branch, str(existing_path))
+    os.symlink(shared / "CMakeUserPresets.json", existing_path / "CMakeUserPresets.json")
+    (existing_path / ".idea").mkdir()
+    os.symlink(run_configs, existing_path / ".idea" / "runConfigurations")
+
+    venv_bin = git_repo / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    os.symlink(sys.executable, venv_bin / "python")
+
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "add", branch],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert (wt_path / "CMakeUserPresets.json").is_symlink()
+    assert (wt_path / "CMakeUserPresets.json").resolve() == shared / "CMakeUserPresets.json"
+    assert (wt_path / ".idea" / "runConfigurations").is_symlink()
+    assert (wt_path / ".idea" / "runConfigurations").resolve() == run_configs
+    assert not (wt_path / "venv" / "bin" / "python").exists()
+    assert "Recreated external symlinks" in r.stdout

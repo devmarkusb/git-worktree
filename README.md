@@ -12,6 +12,13 @@ Single Python file. After each **add** it runs **git-sub** when available (full 
 LFS), otherwise a **minimal built-in** `git submodule update --init --recursive`. **Remove** uses
 `git worktree remove -f` so dirty trees and submodule checkouts do not block cleanup.
 
+After each **add** it also recreates symlinks that resolve outside the repository when the same link
+is present in the source worktree and at least one other existing worktree. This is meant for
+ignored personal config such as `CMakeUserPresets.json`, `.run`, or `.idea/runConfigurations`.
+Common generated directories such as `venv`, `.venv`, `node_modules`, and `cmake-build-*` are pruned
+while scanning. For the first added worktree, where no second worktree exists yet, it bootstraps
+from ignored external symlinks in the source worktree and skips obvious system targets.
+
 ## Requirements
 
 - Python 3.8+ (uses postponed annotations)

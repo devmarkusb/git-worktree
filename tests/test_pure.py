@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -83,6 +84,77 @@ def test_is_python_script_shebang_not_python(gw, tmp_path: Path):
 def test_is_python_script_missing(gw, tmp_path: Path):
     p = tmp_path / "nope"
     assert gw.is_python_script(p) is False
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs privileges on Windows")
+def test_find_external_symlinks_skips_internal_and_generated_dirs(gw, tmp_path: Path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "config.json").write_text("{}\n")
+    (root / "internal").write_text("repo\n")
+    os.symlink("internal", root / "internal-link")
+    os.symlink(shared / "config.json", root / "CMakeUserPresets.json")
+
+    idea = root / ".idea"
+    idea.mkdir()
+    os.symlink(shared, idea / "runConfigurations")
+
+    venv_bin = root / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    os.symlink(sys.executable, venv_bin / "python")
+
+    found = gw.find_external_symlinks(root)
+    assert [link.relpath.as_posix() for link in found] == [
+        ".idea/runConfigurations",
+        "CMakeUserPresets.json",
+    ]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs privileges on Windows")
+def test_recreate_external_symlinks_preserves_targets(gw, tmp_path: Path):
+    source = tmp_path / "source" / "repo"
+    sibling = tmp_path / "sibling" / "repo-other"
+    target = tmp_path / "target" / "repo-branch"
+    source.mkdir(parents=True)
+    sibling.mkdir(parents=True)
+    target.mkdir(parents=True)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "preset.json").write_text("{}\n")
+
+    os.symlink(shared / "preset.json", source / "CMakeUserPresets.json")
+    os.symlink("../../shared", source / "relative-shared")
+    os.symlink(shared / "preset.json", sibling / "CMakeUserPresets.json")
+    os.symlink("../../shared", sibling / "relative-shared")
+    os.symlink(sys.executable, source / "source-only")
+
+    created = gw.recreate_external_symlinks(source, [source, sibling], target)
+    assert [path.as_posix() for path in created] == [
+        "CMakeUserPresets.json",
+        "relative-shared",
+    ]
+    assert (target / "CMakeUserPresets.json").is_symlink()
+    assert (target / "CMakeUserPresets.json").resolve() == shared / "preset.json"
+    assert (target / "relative-shared").is_symlink()
+    assert (target / "relative-shared").resolve() == shared
+    assert not (target / "source-only").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs privileges on Windows")
+def test_recreate_external_symlinks_requires_shared_link(gw, tmp_path: Path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    shared = tmp_path / "shared"
+    source.mkdir()
+    target.mkdir()
+    shared.mkdir()
+    os.symlink(shared, source / ".run")
+
+    created = gw.recreate_external_symlinks(source, [source], target)
+    assert created == []
+    assert not (target / ".run").exists()
 
 
 def test_main_help_exits_zero():
