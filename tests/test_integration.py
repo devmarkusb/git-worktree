@@ -51,6 +51,19 @@ def test_add_and_remove_worktree(git_repo: Path):
     assert r_list.returncode == 0, r_list.stderr + r_list.stdout
     assert str(git_repo) in r_list.stdout
     assert str(wt_path) in r_list.stdout
+    assert f"rm {branch}" in r_list.stdout
+    assert "folder suffix" in r_list.stdout
+
+    r_bad = subprocess.run(
+        [sys.executable, str(SCRIPT), "rm", "does-not-exist"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r_bad.returncode != 0
+    err = r_bad.stderr + r_bad.stdout
+    assert "no managed worktree" in err
+    assert f"rm {branch}" in err
 
     r2 = subprocess.run(
         [sys.executable, str(SCRIPT), "rm", branch],

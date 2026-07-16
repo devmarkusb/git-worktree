@@ -78,7 +78,7 @@ python C:\path\to\git-worktree add my-branch
 
 ```text
 git-worktree add <branch>       # create worktree + post-add hook (see above)
-git-worktree list|ls            # list linked worktrees
+git-worktree list|ls            # list worktrees; prints rm <name> hints after
 git-worktree remove|rm <branch> # remove (forced: safe with submodules / local changes)
 git-worktree --help
 ```
@@ -87,8 +87,9 @@ The worktree directory is always:
 
 `<parent-of-repo>/<repo-dir-name>-<branch with / turned into ->`
 
-On **remove**, pass the **same `<branch>` string you used when creating** the worktree (it encodes
-the folder name), not necessarily the branch currently checked out there.
+On **remove**, pass that folder suffix (what `ls` lists after the git output), not necessarily the
+branch currently checked out there. Paths outside this naming scheme are listed as not managed —
+remove those with `git worktree remove -f <path>`.
 
 ## License
 

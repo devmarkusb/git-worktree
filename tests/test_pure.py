@@ -17,6 +17,42 @@ def test_worktree_path(gw):
     assert gw.worktree_path(root, "feature/foo") == Path("/tmp/proj/myrepo-feature-foo")
 
 
+def test_managed_remove_name(gw, tmp_path: Path):
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    assert gw.managed_remove_name(root, root) is None
+    assert gw.managed_remove_name(root, tmp_path / "myrepo-sidequest") == "sidequest"
+    assert gw.managed_remove_name(root, tmp_path / "myrepo-feature-foo") == "feature-foo"
+    assert gw.managed_remove_name(root, tmp_path / "other-sidequest") is None
+    assert gw.managed_remove_name(root, Path("/tmp/myrepo-sidequest")) is None
+
+
+def test_print_rm_hint_lists_unmanaged(gw, tmp_path: Path, capsys):
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    managed = tmp_path / "myrepo-sidequest"
+    managed.mkdir()
+    foreign = tmp_path / "scratch"
+    foreign.mkdir()
+    gw.print_rm_hint(root, [root, managed, foreign])
+    out = capsys.readouterr().out
+    assert "rm sidequest" in out
+    assert "not managed" in out
+    assert str(foreign) in out
+    assert "(none)" not in out
+
+
+def test_print_rm_hint_unmanaged_none(gw, tmp_path: Path, capsys):
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    managed = tmp_path / "myrepo-sidequest"
+    managed.mkdir()
+    gw.print_rm_hint(root, [root, managed])
+    out = capsys.readouterr().out
+    assert "not managed" in out
+    assert "(none)" in out
+
+
 def test_parse_argv_add(gw):
     assert gw.parse_argv(["add", "x"]) == ("add", "x")
     assert gw.parse_argv(["add", "list"]) == ("add", "list")

@@ -24,7 +24,7 @@ Try '{PROG} --help' for more."""
 
 HELP = f"""Usage:
   {PROG} add <branch>          Create a linked worktree for <branch>
-  {PROG} list|ls               List linked worktrees (git worktree list)
+  {PROG} list|ls               List linked worktrees (and rm <name> hints)
   {PROG} remove|rm <branch>    Remove that worktree (uses git worktree remove -f)
 
 Worktree path:
@@ -34,10 +34,9 @@ About <branch>:
   On add, <branch> is a real Git branch name (or a new branch name to create): it
   selects what to check out and also sets the directory suffix above.
 
-  On remove, <branch> must be the same string you used at create time. It only
-  recomputes that directory name; it is not "whatever branch is checked out now"
-  in the worktree. If you later git checkout another branch inside the worktree,
-  you still remove with the original creation name.
+  On remove, <branch> is that directory suffix (after `<repo>-`). It is not
+  "whatever branch is checked out now" in the worktree. `{PROG} ls` prints the
+  usable names after the normal git listing.
 
   If you rename the worktree directory by hand, this script will not find it
   unless you pass a name that still matches the folder suffix (or use another tool).
@@ -139,6 +138,65 @@ def git_worktree_roots() -> list[Path]:
         if line.startswith("worktree "):
             roots.append(Path(line[len("worktree ") :]))
     return roots
+
+
+def managed_remove_name(root: Path, worktree: Path) -> str | None:
+    """Folder suffix for `{PROG} rm`, or None if not this tool's path scheme."""
+    root = root.resolve(strict=False)
+    worktree = worktree.resolve(strict=False)
+    if worktree == root:
+        return None
+    prefix = f"{root.name}-"
+    if worktree.parent != root.parent or not worktree.name.startswith(prefix):
+        return None
+    suffix = worktree.name[len(prefix) :]
+    return suffix or None
+
+
+def managed_remove_names(root: Path, roots: list[Path] | None = None) -> list[str]:
+    if roots is None:
+        roots = git_worktree_roots()
+    return [n for p in roots if (n := managed_remove_name(root, p)) is not None]
+
+
+def unmanaged_worktrees(root: Path, roots: list[Path] | None = None) -> list[Path]:
+    if roots is None:
+        roots = git_worktree_roots()
+    root_r = root.resolve(strict=False)
+    return [
+        p
+        for p in roots
+        if managed_remove_name(root, p) is None and p.resolve(strict=False) != root_r
+    ]
+
+
+def print_rm_hint(
+    root: Path,
+    roots: list[Path] | None = None,
+    *,
+    file=None,
+) -> None:
+    if file is None:
+        file = sys.stdout
+    if roots is None:
+        roots = git_worktree_roots()
+    names = managed_remove_names(root, roots)
+    foreign = unmanaged_worktrees(root, roots)
+    print(
+        f"rm <name> uses the folder suffix after '{root.name}-' "
+        f"(not the checked-out branch).",
+        file=file,
+    )
+    if names:
+        print("  " + "  ".join(f"rm {n}" for n in names), file=file)
+    else:
+        print("  (no managed worktrees)", file=file)
+    print("not managed — use: git worktree remove -f <path>", file=file)
+    if foreign:
+        for path in foreign:
+            print(f"  {path}", file=file)
+    else:
+        print("  (none)", file=file)
 
 
 def is_git_ignored(root: Path, relpath: Path) -> bool:
@@ -390,13 +448,20 @@ def cmd_add(branch: str, worktree_script: Path) -> None:
 def cmd_remove(branch: str) -> None:
     root = repo_root()
     wt = worktree_path(root, branch)
+    roots = git_worktree_roots()
+    if wt.resolve(strict=False) not in {p.resolve(strict=False) for p in roots}:
+        print(f"Error: no managed worktree for {branch!r} (expected {wt})", file=sys.stderr)
+        print_rm_hint(root, roots, file=sys.stderr)
+        raise SystemExit(1)
     git_run(["worktree", "remove", "-f", str(wt)])
     print("Removed worktree:")
     print(f"  {wt}")
 
 
 def cmd_list() -> None:
+    root = repo_root()
     git_run(["worktree", "list"])
+    print_rm_hint(root)
 
 
 def parse_argv(argv: list[str]) -> tuple[str, str | None]:
