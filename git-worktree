@@ -446,9 +446,9 @@ def cmd_add(branch: str, worktree_script: Path) -> None:
 
 
 def cmd_remove(branch: str) -> None:
-    root = repo_root()
-    wt = worktree_path(root, branch)
     roots = git_worktree_roots()
+    root = roots[0]
+    wt = worktree_path(root, branch)
     if wt.resolve(strict=False) not in {p.resolve(strict=False) for p in roots}:
         print(f"Error: no managed worktree for {branch!r} (expected {wt})", file=sys.stderr)
         print_rm_hint(root, roots, file=sys.stderr)
@@ -459,9 +459,9 @@ def cmd_remove(branch: str) -> None:
 
 
 def cmd_list() -> None:
-    root = repo_root()
+    roots = git_worktree_roots()
     git_run(["worktree", "list"])
-    print_rm_hint(root)
+    print_rm_hint(roots[0], roots)
 
 
 def parse_argv(argv: list[str]) -> tuple[str, str | None]:

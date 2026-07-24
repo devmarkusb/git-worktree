@@ -53,6 +53,35 @@ def test_print_rm_hint_unmanaged_none(gw, tmp_path: Path, capsys):
     assert "(none)" in out
 
 
+def test_cmd_list_uses_main_worktree_for_remove_hints_from_linked_worktree(
+    gw, monkeypatch, capsys
+):
+    main = Path("/repos/project")
+    linked = Path("/repos/project-feature")
+    monkeypatch.setattr(gw, "repo_root", lambda: linked)
+    monkeypatch.setattr(gw, "git_worktree_roots", lambda: [main, linked])
+    monkeypatch.setattr(gw, "git_run", lambda args: None)
+
+    gw.cmd_list()
+
+    out = capsys.readouterr().out
+    assert "rm feature" in out
+    assert "/repos/project" not in out
+
+
+def test_cmd_remove_uses_main_worktree_from_linked_worktree(gw, monkeypatch):
+    main = Path("/repos/project")
+    linked = Path("/repos/project-feature")
+    calls = []
+    monkeypatch.setattr(gw, "repo_root", lambda: linked)
+    monkeypatch.setattr(gw, "git_worktree_roots", lambda: [main, linked])
+    monkeypatch.setattr(gw, "git_run", lambda args: calls.append(args))
+
+    gw.cmd_remove("feature")
+
+    assert calls == [["worktree", "remove", "-f", str(linked)]]
+
+
 def test_parse_argv_add(gw):
     assert gw.parse_argv(["add", "x"]) == ("add", "x")
     assert gw.parse_argv(["add", "list"]) == ("add", "list")
